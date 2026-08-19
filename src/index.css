@@ -14,8 +14,50 @@
 }
 
 .drag-over {
-  border-color: #00236f !important;
+  border-color: #264796 !important;
   background-color: #eff4ff !important;
+}
+
+/* --------------------------------------------------------------------------
+   Escáner QR (html5-qrcode)
+   La librería inyecta dentro de #qr-reader-region un <video> con estilos
+   inline (ancho/alto en px) y además un <canvas>, a veces un <img> de
+   placeholder y una "región sombreada" de escaneo. Eso provoca franjas
+   negras con iconos "al costado" del video. Aquí forzamos que el video
+   llene y quede centrado, y ocultamos todo lo demás que meta la librería.
+   -------------------------------------------------------------------------- */
+/* La librería fija un ancho/alto en px INLINE sobre el contenedor; por eso
+   el video salía angosto y pegado a la izquierda. Se fuerza con !important. */
+#qr-reader-region {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  overflow: hidden !important;
+  background: #000;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+#qr-reader-region video {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  object-fit: cover !important; /* cubre todo el visor, sin franjas negras */
+}
+
+/* Elementos auxiliares que inyecta la librería y que no queremos ver. */
+#qr-reader-region canvas,
+#qr-reader-region img,
+#qr-reader-region video + div,
+#qr-reader-region #qr-shaded-region {
+  display: none !important;
 }
 
 .scanner-line {
@@ -31,6 +73,17 @@
   }
   100% {
     transform: translateY(-100%);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }
 

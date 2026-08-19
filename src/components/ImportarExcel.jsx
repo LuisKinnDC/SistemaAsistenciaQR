@@ -1,27 +1,104 @@
 import { useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabaseClient';
+import { useUI } from '../lib/UIContext';
 import { seccionATurno } from '../utils/turnos';
 import Icon from './Icon';
+import EditarAlumno from './EditarAlumno';
 
 const COLUMNAS_ESPERADAS = ['DNI', 'NOMBRES', 'APELLIDOS', 'GRADO', 'SECCION'];
 const PAGE_SIZE = 8;
 
-function normalizarFila(fila) {
-  const norm = {};
-  for (const key of Object.keys(fila)) norm[key.trim().toUpperCase()] = fila[key];
-  return norm;
+// Alias aceptados por cada columna (ya NORMALIZADOS: sin acentos, sin
+// puntuación, sin espacios extra, en MAYÚSCULAS). Así el Excel puede traer
+// "Sección", "N° DNI", "D.N.I.", "APELLIDO", "Año", "Código", etc., en
+// cualquier orden, y aun así se reconoce.
+const ALIAS_COLUMNAS = {
+  DNI: [
+    'DNI', 'DOCUMENTO', 'NRO DOCUMENTO', 'NUMERO DOCUMENTO', 'NUMERO DE DOCUMENTO',
+    'N DNI', 'NRO DNI', 'NUMERO DNI', 'CODIGO', 'CODIGO ESTUDIANTE', 'CODIGO DEL ESTUDIANTE',
+  ],
+  NOMBRES: ['NOMBRES', 'NOMBRE', 'NOMBRE DEL ESTUDIANTE', 'NOMBRES DEL ESTUDIANTE'],
+  APELLIDOS: ['APELLIDOS', 'APELLIDO', 'APELLIDOS Y NOMBRES', 'APELLIDOS DEL ESTUDIANTE'],
+  GRADO: ['GRADO', 'ANO', 'ANIO', 'GRADO ANO', 'GRADO ANIO'],
+  SECCION: ['SECCION', 'SEC'],
+};
+
+// Normaliza el texto de una cabecera: quita acentos y puntuación, colapsa
+// espacios, recorta y pasa a mayúsculas. "  Sección " -> "SECCION",
+// "D.N.I." -> "DNI", "N° DNI" -> "N DNI".
+function normalizarClave(clave) {
+  return String(clave ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '') // acentos
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]/g, ' ') // puntuación/símbolos -> espacio
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// ¿La clave corresponde a alguno de los alias? Se compara sobre la versión
+// COMPACTA (sin espacios) para que cabeceras con puntuación como "N° D.N.I."
+// (-> "NDNI") o "D.N.I." (-> "DNI") coincidan con el alias "DNI". Acepta
+// igualdad exacta o "contiene" (p. ej. "DNIDELALUMNO" contiene "DNI").
+function coincideColumna(claveCompacta, alias) {
+  return alias.some((a) => {
+    const ac = a.replace(/ /g, '');
+    return claveCompacta === ac || claveCompacta.includes(ac);
+  });
+}
+
+// Dada la fila de cabecera (normalizada para mostrar), devuelve el índice de
+// columna de cada campo esperado, o -1 si no aparece.
+function detectarIndices(cabecera) {
+  const compactas = cabecera.map((k) => k.replace(/ /g, ''));
+  const indices = {};
+  for (const [campo, alias] of Object.entries(ALIAS_COLUMNAS)) {
+    indices[campo] = compactas.findIndex((k) => coincideColumna(k, alias));
+  }
+  return indices;
+}
+
+// Recorre TODAS las hojas del libro y devuelve la mejor candidata a cabecera:
+// la fila (en cualquier hoja) que reconoce más columnas esperadas.
+function localizarCabecera(workbook) {
+  let mejor = { matriz: null, idxCabecera: -1, indices: null, cabecera: [], aciertos: -1 };
+  for (const nombreHoja of workbook.SheetNames) {
+    const hoja = workbook.Sheets[nombreHoja];
+    if (!hoja) continue;
+    const matriz = XLSX.utils.sheet_to_json(hoja, {
+      header: 1,
+      defval: '',
+      blankrows: false,
+      raw: false, // valores ya formateados como texto
+    });
+    matriz.forEach((fila, idx) => {
+      if (!Array.isArray(fila)) return;
+      const cabecera = fila.map(normalizarClave);
+      const indices = detectarIndices(cabecera);
+      const aciertos = COLUMNAS_ESPERADAS.filter((c) => indices[c] !== -1).length;
+      if (aciertos > mejor.aciertos) {
+        mejor = { matriz, idxCabecera: idx, indices, cabecera, aciertos };
+      }
+    });
+  }
+  return mejor;
 }
 
 export default function ImportarExcel() {
+  const { toast } = useUI();
+  const [pestana, setPestana] = useState('importar'); // importar | editar
   const [archivo, setArchivo] = useState(null);
   const [filas, setFilas] = useState([]);
   const [errorArchivo, setErrorArchivo] = useState('');
-  const [cargando, setCargando] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [filtroTurno, setFiltroTurno] = useState('TODOS');
   const [pagina, setPagina] = useState(0);
   const [arrastrando, setArrastrando] = useState(false);
+  const [analizando, setAnalizando] = useState(false);
+  const [aplicando, setAplicando] = useState(false);
+  const [analisis, setAnalisis] = useState(null); // { nuevos, actualizar, sinCambios, bajas }
+  const [incluirBajas, setIncluirBajas] = useState(true);
 
   function manejarArchivo(file) {
     if (!file) return;
@@ -33,49 +110,79 @@ export default function ImportarExcel() {
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const workbook = XLSX.read(evt.target.result, { type: 'binary' });
-        const primeraHoja = workbook.Sheets[workbook.SheetNames[0]];
-        const filasCrudas = XLSX.utils.sheet_to_json(primeraHoja, { defval: '' });
-        const normalizadas = filasCrudas.map(normalizarFila);
-
-        const faltantes = COLUMNAS_ESPERADAS.filter((col) => !(col in (normalizadas[0] || {})));
-        if (faltantes.length > 0) {
-          setErrorArchivo(`Faltan columnas en el Excel: ${faltantes.join(', ')}`);
+        const workbook = XLSX.read(evt.target.result, { type: 'array' });
+        if (!workbook.SheetNames.length) {
+          setErrorArchivo('El archivo no contiene ninguna hoja de cálculo.');
           setFilas([]);
           return;
         }
 
-        const procesadas = normalizadas.map((fila) => {
-          const seccion = String(fila.SECCION || '').trim().toUpperCase();
-          const dni = String(fila.DNI || '').trim();
-          const turno = seccionATurno(seccion);
-          let estado = 'valido';
-          let mensaje = 'Válido';
-          if (!dni || !/^\d{6,10}$/.test(dni)) {
-            estado = 'error';
-            mensaje = 'DNI inválido';
-          } else if (!turno) {
-            estado = 'error';
-            mensaje = 'Sección Inválida';
-          }
-          return {
-            dni,
-            nombres: String(fila.NOMBRES || '').trim(),
-            apellidos: String(fila.APELLIDOS || '').trim(),
-            grado: String(fila.GRADO || '').trim(),
-            seccion,
-            turno,
-            estado,
-            mensaje,
-          };
-        });
+        // Localiza la fila de cabecera en cualquier hoja, aunque haya filas o
+        // columnas vacías por encima/izquierda (elige la fila que reconoce más
+        // columnas esperadas). Tolera títulos y espaciadores.
+        const { matriz, idxCabecera, indices, cabecera, aciertos } = localizarCabecera(workbook);
+
+        const faltantes = COLUMNAS_ESPERADAS.filter((col) => !indices || indices[col] === -1);
+        if (idxCabecera === -1 || faltantes.length > 0) {
+          const detectada = (cabecera || []).filter(Boolean).join(', ') || '(vacía)';
+          setErrorArchivo(
+            aciertos <= 0
+              ? 'No se encontró una fila de cabecera con las columnas DNI, NOMBRES, APELLIDOS, GRADO y SECCION.'
+              : `Faltan columnas en el Excel: ${faltantes.join(', ')}. Cabecera detectada: ${detectada}`
+          );
+          setFilas([]);
+          return;
+        }
+
+        const valor = (fila, campo) => String(fila[indices[campo]] ?? '').trim();
+
+        const procesadas = matriz
+          .slice(idxCabecera + 1)
+          .map((fila) => {
+            if (!Array.isArray(fila)) return null;
+            const dni = valor(fila, 'DNI').replace(/\s+/g, '');
+            const nombres = valor(fila, 'NOMBRES');
+            const apellidos = valor(fila, 'APELLIDOS');
+            const grado = valor(fila, 'GRADO');
+            const seccion = valor(fila, 'SECCION').toUpperCase();
+
+            // Descarta filas totalmente vacías (p. ej. separadores al final).
+            if (!dni && !nombres && !apellidos && !grado && !seccion) return null;
+
+            const turno = seccionATurno(seccion);
+            let estado = 'valido';
+            let mensaje = 'Válido';
+            // Se acepta el DNI peruano (8 díg., rango 6-10) y también códigos
+            // más largos (p. ej. código de estudiante / documento de
+            // extranjería de 14 díg.). Todo va al mismo campo `dni`.
+            let tipoId = 'DNI';
+            if (!dni || !/^\d{6,15}$/.test(dni)) {
+              estado = 'error';
+              mensaje = 'ID inválido (debe ser numérico, 6 a 15 dígitos)';
+              tipoId = null;
+            } else if (!turno) {
+              estado = 'error';
+              mensaje = 'Sección Inválida';
+              tipoId = dni.length > 10 ? 'CODIGO' : 'DNI';
+            } else {
+              tipoId = dni.length > 10 ? 'CODIGO' : 'DNI';
+            }
+            return { dni, nombres, apellidos, grado, seccion, turno, estado, mensaje, tipoId };
+          })
+          .filter(Boolean);
+
+        if (procesadas.length === 0) {
+          setErrorArchivo('El archivo no contiene filas de datos debajo de la cabecera.');
+          setFilas([]);
+          return;
+        }
 
         setFilas(procesadas);
       } catch (err) {
         setErrorArchivo(`No se pudo leer el archivo: ${err.message}`);
       }
     };
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   }
 
   const filasValidas = useMemo(() => filas.filter((f) => f.estado === 'valido'), [filas]);
@@ -87,31 +194,112 @@ export default function ImportarExcel() {
   const totalPaginas = Math.max(1, Math.ceil(filasFiltradas.length / PAGE_SIZE));
   const filasPagina = filasFiltradas.slice(pagina * PAGE_SIZE, pagina * PAGE_SIZE + PAGE_SIZE);
 
-  async function sincronizar() {
+  // Compara la nómina del Excel contra la base y clasifica los cambios, SIN
+  // aplicar nada todavía. El usuario revisa el resumen y confirma.
+  async function analizar() {
     if (filasValidas.length === 0) return;
-    setCargando(true);
+    setAnalizando(true);
+    setResultado(null);
+    setAnalisis(null);
+
+    const { data: actuales, error } = await supabase
+      .from('estudiantes')
+      .select('id, dni, nombres, apellidos, grado, seccion, turno, activo');
+
+    if (error) {
+      setAnalizando(false);
+      setResultado({ ok: false, mensaje: error.message });
+      return;
+    }
+
+    const mapaBD = new Map((actuales || []).map((e) => [String(e.dni), e]));
+    const mapaExcel = new Map(filasValidas.map((f) => [String(f.dni), f]));
+
+    const nuevos = [];
+    const actualizar = [];
+    const sinCambios = [];
+    const bajas = [];
+
+    for (const f of filasValidas) {
+      const bd = mapaBD.get(String(f.dni));
+      if (!bd) {
+        nuevos.push(f);
+      } else {
+        const cambio =
+          bd.nombres !== f.nombres ||
+          bd.apellidos !== f.apellidos ||
+          bd.grado !== f.grado ||
+          bd.seccion !== f.seccion ||
+          bd.turno !== f.turno ||
+          !bd.activo;
+        if (cambio) actualizar.push({ ...f, _bd: bd });
+        else sinCambios.push(f);
+      }
+    }
+
+    // Alumnos activos en la BD que ya no aparecen en el nuevo Excel.
+    for (const e of actuales || []) {
+      if (e.activo && !mapaExcel.has(String(e.dni))) bajas.push(e);
+    }
+
+    setAnalisis({ nuevos, actualizar, sinCambios, bajas });
+    setAnalizando(false);
+  }
+
+  // Aplica la sincronización previamente analizada.
+  async function aplicar() {
+    if (!analisis) return;
+    setAplicando(true);
     setResultado(null);
 
-    const payload = filasValidas.map(({ dni, nombres, apellidos, grado, seccion, turno }) => ({
+    const { nuevos, actualizar, bajas } = analisis;
+    const upserts = [...nuevos, ...actualizar].map(({ dni, nombres, apellidos, grado, seccion, turno }) => ({
       dni,
       nombres,
       apellidos,
       grado,
       seccion,
       turno,
+      activo: true, // reactiva a quien vuelve a aparecer en la nómina
     }));
 
-    const { data, error } = await supabase
-      .from('estudiantes')
-      .upsert(payload, { onConflict: 'dni', ignoreDuplicates: false })
-      .select('id');
-
-    setCargando(false);
-    if (error) {
-      setResultado({ ok: false, mensaje: error.message });
-    } else {
-      setResultado({ ok: true, mensaje: `Se sincronizaron ${data.length} estudiantes con Supabase.` });
+    let err = null;
+    if (upserts.length > 0) {
+      const { error } = await supabase
+        .from('estudiantes')
+        .upsert(upserts, { onConflict: 'dni', ignoreDuplicates: false });
+      if (error) err = error;
     }
+
+    // Baja lógica (activo=false): NO se borra el alumno, así se conserva su
+    // historial de asistencias. Solo si el usuario marcó la opción.
+    if (!err && incluirBajas && bajas.length > 0) {
+      const { error } = await supabase
+        .from('estudiantes')
+        .update({ activo: false })
+        .in(
+          'dni',
+          bajas.map((b) => b.dni)
+        );
+      if (error) err = error;
+    }
+
+    setAplicando(false);
+    if (err) {
+      setResultado({ ok: false, mensaje: err.message });
+      return;
+    }
+
+    const partes = [];
+    if (nuevos.length) partes.push(`${nuevos.length} agregado(s)`);
+    if (actualizar.length) partes.push(`${actualizar.length} actualizado(s)`);
+    if (incluirBajas && bajas.length) partes.push(`${bajas.length} dado(s) de baja`);
+    setResultado({
+      ok: true,
+      mensaje: `Sincronización aplicada: ${partes.length ? partes.join(', ') : 'sin cambios que aplicar'}.`,
+    });
+    toast('Sincronización aplicada', 'exito');
+    setAnalisis(null);
   }
 
   const pillsGlobal = [
@@ -123,30 +311,57 @@ export default function ImportarExcel() {
   return (
     <>
       {/* Desktop Header */}
-      <header className="sticky top-0 z-30 hidden md:flex justify-between items-center w-full px-margin-desktop py-4 bg-surface border-b border-outline-variant shadow-sm">
-        <h2 className="font-headline-lg text-headline-lg font-semibold text-on-surface">Importación Masiva</h2>
-        <div className="flex items-center gap-2 bg-surface-container-lowest border border-outline-variant rounded-lg p-1">
-          {pillsGlobal.map((p) => (
+      {pestana === 'importar' && (
+        <header className="sticky top-0 z-30 hidden md:flex justify-between items-center w-full px-margin-desktop py-4 bg-surface border-b border-outline-variant shadow-sm">
+          <h2 className="font-headline-lg text-headline-lg font-semibold text-on-surface">Importación Masiva</h2>
+          <div className="flex items-center gap-2 bg-surface-container-lowest border border-outline-variant rounded-lg p-1">
+            {pillsGlobal.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => {
+                  setFiltroTurno(p.key);
+                  setPagina(0);
+                }}
+                className={`px-4 py-1.5 rounded-md text-body-md font-body-md transition-colors flex items-center gap-1 ${
+                  filtroTurno === p.key
+                    ? 'bg-surface-container-low text-primary font-medium shadow-sm'
+                    : 'text-on-surface-variant hover:bg-surface-container-lowest'
+                }`}
+              >
+                {p.dot && <span className={`w-2 h-2 rounded-full ${p.dot}`} />}
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </header>
+      )}
+
+      <div className="p-margin-mobile md:p-margin-desktop flex-1 max-w-max-width mx-auto w-full flex flex-col gap-6">
+        {/* Pestañas: Importar / Modificar alumno */}
+        <div className="flex gap-1 bg-surface-container-low rounded-lg p-1 border border-outline-variant w-full md:w-fit">
+          {[
+            { key: 'importar', label: 'Importar / Sincronizar', icon: 'upload_file' },
+            { key: 'editar', label: 'Modificar alumno', icon: 'edit' },
+          ].map((t) => (
             <button
-              key={p.key}
-              onClick={() => {
-                setFiltroTurno(p.key);
-                setPagina(0);
-              }}
-              className={`px-4 py-1.5 rounded-md text-body-md font-body-md transition-colors flex items-center gap-1 ${
-                filtroTurno === p.key
-                  ? 'bg-surface-container-low text-primary font-medium shadow-sm'
-                  : 'text-on-surface-variant hover:bg-surface-container-lowest'
+              key={t.key}
+              onClick={() => setPestana(t.key)}
+              className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-md font-label-md text-label-md transition-colors ${
+                pestana === t.key
+                  ? 'bg-white shadow-sm text-primary border border-outline-variant/30'
+                  : 'text-on-surface-variant hover:bg-surface-variant'
               }`}
             >
-              {p.dot && <span className={`w-2 h-2 rounded-full ${p.dot}`} />}
-              {p.label}
+              <Icon name={t.icon} className="text-[18px]" />
+              {t.label}
             </button>
           ))}
         </div>
-      </header>
 
-      <div className="p-margin-mobile md:p-margin-desktop flex-1 max-w-max-width mx-auto w-full flex flex-col gap-6">
+        {pestana === 'editar' && <EditarAlumno />}
+
+        {pestana === 'importar' && (
+        <>
         {/* Mobile title */}
         <div className="md:hidden flex justify-between items-center mb-2">
           <h2 className="font-headline-lg-mobile text-headline-lg-mobile font-semibold text-on-surface">
@@ -319,7 +534,15 @@ export default function ImportarExcel() {
                         f.estado === 'error' ? 'bg-error-container/10' : ''
                       }`}
                     >
-                      <td className="py-4 px-6 font-medium text-on-surface-variant">{f.dni || '—'}</td>
+                      <td className="py-4 px-6 font-medium text-on-surface-variant whitespace-nowrap">
+                        {f.dni || '—'}
+                        {f.tipoId === 'CODIGO' && (
+                          <span className="ml-2 inline-flex items-center gap-1 bg-sky-100 text-sky-800 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider align-middle">
+                            <Icon name="badge" className="text-[12px]" />
+                            Código
+                          </span>
+                        )}
+                      </td>
                       <td className="py-4 px-6">
                         {f.apellidos}, {f.nombres}
                       </td>
@@ -391,8 +614,13 @@ export default function ImportarExcel() {
                   />
                   <div className="flex justify-between items-start mb-3">
                     <div>
-                      <p className={`text-xs mb-0.5 ${f.estado === 'error' ? 'text-error' : 'text-on-surface-variant'}`}>
-                        DNI: {f.dni || '—'}
+                      <p className={`text-xs mb-0.5 flex items-center gap-1.5 ${f.estado === 'error' ? 'text-error' : 'text-on-surface-variant'}`}>
+                        {f.tipoId === 'CODIGO' ? 'Código' : 'DNI'}: {f.dni || '—'}
+                        {f.tipoId === 'CODIGO' && (
+                          <span className="inline-flex items-center bg-sky-100 text-sky-800 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider">
+                            14 díg.
+                          </span>
+                        )}
                       </p>
                       <h4 className="font-title-md text-title-md text-on-surface">
                         {f.apellidos}, {f.nombres}
@@ -470,12 +698,12 @@ export default function ImportarExcel() {
               </p>
             )}
             <button
-              onClick={sincronizar}
-              disabled={cargando || filasValidas.length === 0}
-              className="w-full md:w-auto bg-[#00164e] text-white font-title-md text-title-md px-8 py-4 rounded-xl shadow-md hover:bg-[#00236f] active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+              onClick={analizar}
+              disabled={analizando || filasValidas.length === 0}
+              className="w-full md:w-auto bg-brand-blue text-white font-title-md text-title-md px-8 py-4 rounded-xl shadow-md hover:bg-brand-blue-dark active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50"
             >
-              <Icon name="sync" />
-              {cargando ? 'Sincronizando...' : `Procesar y Sincronizar ${filasValidas.length} con Supabase`}
+              <Icon name="difference" />
+              {analizando ? 'Comparando…' : `Comparar ${filasValidas.length} con la base de datos`}
             </button>
           </div>
         )}
@@ -488,6 +716,150 @@ export default function ImportarExcel() {
           >
             <Icon name={resultado.ok ? 'check_circle' : 'error'} />
             {resultado.mensaje}
+          </div>
+        )}
+        </>
+        )}
+
+        {/* Modal de diferencias (resultado del análisis) */}
+        {analisis && (
+          <div className="fixed inset-0 z-[100] bg-inverse-surface/60 flex items-center justify-center p-4">
+            <div className="bg-surface rounded-xl border border-outline-variant shadow-lg w-full max-w-2xl max-h-[90vh] flex flex-col">
+              <div className="p-6 border-b border-outline-variant flex justify-between items-center">
+                <h3 className="font-title-lg text-title-lg text-on-surface flex items-center gap-2">
+                  <Icon name="difference" className="text-primary" />
+                  Comparación con la base de datos
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setAnalisis(null)}
+                  className="text-on-surface-variant hover:text-primary"
+                >
+                  <Icon name="close" />
+                </button>
+              </div>
+
+              <div className="p-6 flex flex-col gap-4 overflow-y-auto">
+                {/* Contadores */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {[
+                    { n: analisis.nuevos.length, label: 'Nuevos', clase: 'bg-emerald-50 text-emerald-700 border-emerald-300' },
+                    { n: analisis.actualizar.length, label: 'Actualizar', clase: 'bg-amber-50 text-amber-700 border-amber-300' },
+                    { n: analisis.bajas.length, label: 'Dar de baja', clase: 'bg-red-50 text-error border-red-300' },
+                    { n: analisis.sinCambios.length, label: 'Sin cambios', clase: 'bg-surface-container-low text-on-surface-variant border-outline-variant' },
+                  ].map((c) => (
+                    <div key={c.label} className={`rounded-lg border p-3 text-center ${c.clase}`}>
+                      <div className="font-display-lg text-3xl font-bold">{c.n}</div>
+                      <div className="text-xs font-medium uppercase tracking-wide">{c.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Nuevos */}
+                {analisis.nuevos.length > 0 && (
+                  <details className="border border-outline-variant rounded-lg" open>
+                    <summary className="cursor-pointer px-4 py-2 font-title-md text-title-md text-emerald-700">
+                      Se agregarán ({analisis.nuevos.length})
+                    </summary>
+                    <ul className="px-4 pb-3 max-h-40 overflow-y-auto text-body-md text-on-surface-variant">
+                      {analisis.nuevos.map((f) => (
+                        <li key={f.dni} className="py-1 border-t border-outline-variant/50">
+                          {f.apellidos}, {f.nombres} — {f.grado} "{f.seccion}" · {f.dni}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+
+                {/* Actualizar */}
+                {analisis.actualizar.length > 0 && (
+                  <details className="border border-outline-variant rounded-lg" open>
+                    <summary className="cursor-pointer px-4 py-2 font-title-md text-title-md text-amber-700">
+                      Se actualizarán ({analisis.actualizar.length})
+                    </summary>
+                    <ul className="px-4 pb-3 max-h-40 overflow-y-auto text-body-md text-on-surface-variant">
+                      {analisis.actualizar.map((f) => {
+                        const cambios = [];
+                        if (f._bd.grado !== f.grado || f._bd.seccion !== f.seccion)
+                          cambios.push(`${f._bd.grado} "${f._bd.seccion}" → ${f.grado} "${f.seccion}"`);
+                        if (f._bd.apellidos !== f.apellidos || f._bd.nombres !== f.nombres) cambios.push('nombre');
+                        if (!f._bd.activo) cambios.push('reactivar');
+                        return (
+                          <li key={f.dni} className="py-1 border-t border-outline-variant/50">
+                            {f.apellidos}, {f.nombres} · {f.dni}
+                            {cambios.length > 0 && (
+                              <span className="text-amber-700"> — {cambios.join(', ')}</span>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </details>
+                )}
+
+                {/* Bajas */}
+                {analisis.bajas.length > 0 && (
+                  <details className="border border-red-300 rounded-lg bg-red-50/40" open>
+                    <summary className="cursor-pointer px-4 py-2 font-title-md text-title-md text-error">
+                      Ya no están en el Excel ({analisis.bajas.length})
+                    </summary>
+                    <div className="px-4 pb-3">
+                      <label className="flex items-start gap-2 py-2 text-body-md text-on-surface cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={incluirBajas}
+                          onChange={(e) => setIncluirBajas(e.target.checked)}
+                          className="mt-1"
+                        />
+                        <span>
+                          Dar de baja a estos alumnos (se marcan como <strong>inactivos</strong>, no se borran —
+                          conservan su historial de asistencias).
+                        </span>
+                      </label>
+                      <ul className="max-h-40 overflow-y-auto text-body-md text-on-surface-variant">
+                        {analisis.bajas.map((e) => (
+                          <li key={e.dni} className="py-1 border-t border-outline-variant/50">
+                            {e.apellidos}, {e.nombres} — {e.grado} "{e.seccion}" · {e.dni}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </details>
+                )}
+
+                {analisis.nuevos.length === 0 &&
+                  analisis.actualizar.length === 0 &&
+                  analisis.bajas.length === 0 && (
+                    <p className="text-center text-on-surface-variant py-4">
+                      La base ya está al día con este Excel: no hay cambios que aplicar.
+                    </p>
+                  )}
+              </div>
+
+              <div className="p-6 border-t border-outline-variant flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setAnalisis(null)}
+                  className="px-4 py-2 border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container-low transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={aplicar}
+                  disabled={
+                    aplicando ||
+                    (analisis.nuevos.length === 0 &&
+                      analisis.actualizar.length === 0 &&
+                      !(incluirBajas && analisis.bajas.length > 0))
+                  }
+                  className="px-6 py-2 bg-brand-blue text-white rounded-lg hover:bg-brand-blue-dark transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  <Icon name="sync" className="text-[18px]" />
+                  {aplicando ? 'Aplicando…' : 'Aplicar cambios'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

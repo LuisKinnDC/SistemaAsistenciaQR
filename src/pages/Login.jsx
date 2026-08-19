@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useAuth } from '../lib/AuthContext';
+import { useUI } from '../lib/UIContext';
 import Icon from '../components/Icon';
 
 export default function Login() {
   const { iniciarSesion } = useAuth();
+  const { toast } = useUI();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -15,7 +17,12 @@ export default function Login() {
     setError('');
     const { error } = await iniciarSesion(email, password);
     setEnviando(false);
-    if (error) setError('Correo o contraseña incorrectos.');
+    if (error) {
+      setError('Correo o contraseña incorrectos.');
+      toast('Correo o contraseña incorrectos', 'error');
+    } else {
+      toast('Bienvenido', 'exito');
+    }
   }
 
   return (
@@ -25,9 +32,7 @@ export default function Login() {
         className="bg-surface-container-lowest rounded-xl shadow-md border border-outline-variant p-8 w-full max-w-sm"
       >
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center shrink-0">
-            <Icon name="school" className="text-on-primary" fill />
-          </div>
+          <img src="/logo.png" alt="Escudo Colegio San Juan" className="w-12 h-12 object-contain shrink-0" />
           <div>
             <h1 className="font-headline-md text-headline-md font-black text-primary leading-tight">
               Asistencia Sanjuanino
@@ -64,7 +69,7 @@ export default function Login() {
         <button
           type="submit"
           disabled={enviando}
-          className="bg-[#00164e] hover:bg-primary disabled:opacity-50 text-on-primary font-title-md text-title-md w-full py-2.5 rounded-lg transition-colors"
+          className="bg-brand-blue hover:bg-brand-blue-dark disabled:opacity-50 text-on-primary font-title-md text-title-md w-full py-2.5 rounded-lg transition-colors"
         >
           {enviando ? 'Ingresando...' : 'Ingresar'}
         </button>

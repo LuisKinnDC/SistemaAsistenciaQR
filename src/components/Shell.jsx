@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
+import { useUI } from '../lib/UIContext';
 import Icon from './Icon';
 
 const ITEMS = [
@@ -17,17 +18,31 @@ function seccionesTexto(perfil) {
 
 function Logo({ small = false }) {
   return (
-    <div
-      className={`${small ? 'w-8 h-8' : 'w-10 h-10'} rounded-lg bg-primary flex items-center justify-center shrink-0`}
-    >
-      <Icon name="school" className="text-on-primary" style={{ fontSize: small ? 18 : 22 }} fill />
-    </div>
+    <img
+      src="/logo.png"
+      alt="Escudo Colegio San Juan"
+      className={`${small ? 'w-8 h-8' : 'w-10 h-10'} object-contain shrink-0`}
+    />
   );
 }
 
 export default function Shell({ children }) {
   const { perfil, esAdmin, cerrarSesion } = useAuth();
+  const { confirmar, toast } = useUI();
   const items = ITEMS.filter((i) => !i.soloAdmin || esAdmin);
+
+  async function manejarCerrarSesion() {
+    const ok = await confirmar({
+      titulo: 'Cerrar sesión',
+      mensaje: '¿Seguro que quieres salir de tu cuenta?',
+      confirmLabel: 'Cerrar sesión',
+      tono: 'peligro',
+      icon: 'logout',
+    });
+    if (!ok) return;
+    toast('Sesión cerrada', 'info');
+    await cerrarSesion();
+  }
 
   return (
     <div className="bg-background text-on-background font-body-md min-h-screen antialiased flex flex-col md:flex-row">
@@ -54,7 +69,7 @@ export default function Shell({ children }) {
               className={({ isActive }) =>
                 `flex items-center gap-3 px-6 py-3 transition-all duration-200 ease-in-out ${
                   isActive
-                    ? 'bg-primary-container text-on-primary-container font-bold border-l-4 border-primary'
+                    ? 'bg-primary-container text-on-primary-container font-bold border-l-4 border-brand-yellow'
                     : 'text-on-surface-variant hover:bg-surface-container-high border-l-4 border-transparent'
                 }`
               }
@@ -79,7 +94,7 @@ export default function Shell({ children }) {
               </p>
             </div>
             <button
-              onClick={cerrarSesion}
+              onClick={manejarCerrarSesion}
               className="text-on-surface-variant hover:text-primary p-2 rounded-full hover:bg-surface-container-high transition-colors shrink-0"
               title="Cerrar sesión"
             >
@@ -98,7 +113,7 @@ export default function Shell({ children }) {
           </span>
         </div>
         <button
-          onClick={cerrarSesion}
+          onClick={manejarCerrarSesion}
           className="text-primary active:scale-95 duration-150 p-2 rounded-full hover:bg-surface-container-low transition-colors"
           title="Cerrar sesión"
         >

@@ -2,16 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../lib/AuthContext';
-import { HORARIOS } from '../utils/turnos';
+import { useUI } from '../lib/UIContext';
+import { claveGradoSeccion, fechaLocalISO, HORARIOS } from '../utils/turnos';
 import Icon from './Icon';
+import Cargador from './Cargador';
 
 function hoyISO() {
-  return new Date().toISOString().slice(0, 10);
+  return fechaLocalISO();
 }
 function haceNDiasISO(n) {
   const d = new Date();
   d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
+  return fechaLocalISO(d);
 }
 function iniciales(nombres, apellidos) {
   return `${(apellidos || '?')[0] || ''}${(nombres || '?')[0] || ''}`.toUpperCase();
@@ -19,6 +21,7 @@ function iniciales(nombres, apellidos) {
 
 export default function ReportesAuxiliar() {
   const { perfil, esAdmin } = useAuth();
+  const { toast } = useUI();
 
   const [fechaInicio, setFechaInicio] = useState(haceNDiasISO(7));
   const [fechaFin, setFechaFin] = useState(hoyISO());
@@ -67,6 +70,7 @@ export default function ReportesAuxiliar() {
     setCargando(false);
     if (reporte.error) {
       setErrorMsg(reporte.error.message);
+      toast('No se pudo cargar el reporte', 'error');
       setFilas([]);
       return;
     }
@@ -89,7 +93,7 @@ export default function ReportesAuxiliar() {
     if (!auxiliarSel) return null;
     const aux = auxiliares.find((a) => a.id === auxiliarSel);
     if (!aux) return null;
-    return new Set((aux.auxiliar_secciones || []).map((s) => `${s.grado}|${s.seccion}`));
+    return new Set((aux.auxiliar_secciones || []).map((s) => claveGradoSeccion(s.grado, s.seccion)));
   }, [auxiliarSel, auxiliares]);
 
   // El filtro de turno (vista) solo aplica cuando NO hay un auxiliar
@@ -100,7 +104,7 @@ export default function ReportesAuxiliar() {
   const filasVisibles = useMemo(() => {
     return filas.filter((f) => {
       if (filtroTurno !== 'CONSOLIDADO' && f.turno !== filtroTurno) return false;
-      if (seccionesAux && !seccionesAux.has(`${f.grado}|${f.seccion}`)) return false;
+      if (seccionesAux && !seccionesAux.has(claveGradoSeccion(f.grado, f.seccion))) return false;
       return true;
     });
   }, [filas, filtroTurno, seccionesAux]);
@@ -109,7 +113,7 @@ export default function ReportesAuxiliar() {
     const conteo = {};
     tardanzasRaw.forEach((r) => {
       if (filtroTurno !== 'CONSOLIDADO' && r.estudiantes.turno !== filtroTurno) return;
-      if (seccionesAux && !seccionesAux.has(`${r.estudiantes.grado}|${r.estudiantes.seccion}`)) return;
+      if (seccionesAux && !seccionesAux.has(claveGradoSeccion(r.estudiantes.grado, r.estudiantes.seccion))) return;
       conteo[r.fecha] = (conteo[r.fecha] || 0) + 1;
     });
     return conteo;
@@ -164,6 +168,10 @@ export default function ReportesAuxiliar() {
   function exportarExcel(soloTurno) {
     let base = filasVisibles;
     if (soloTurno) base = base.filter((f) => f.turno === soloTurno);
+    if (base.length === 0) {
+      toast('No hay datos para exportar con este filtro', 'error');
+      return;
+    }
     const filasExport = base.map((f) => ({
       DNI: f.dni,
       Apellidos: f.apellidos,
@@ -182,6 +190,7 @@ export default function ReportesAuxiliar() {
     const sufijoTurno = soloTurno ? `_${soloTurno}` : '';
     const sufijoAux = nombreAuxSel ? `_${nombreAuxSel.split(' ')[0]}` : '';
     XLSX.writeFile(libro, `reporte_asistencia${sufijoAux}${sufijoTurno}_${fechaInicio}_a_${fechaFin}.xlsx`);
+    toast(`Reporte exportado (${base.length} alumno(s))`, 'exito');
   }
 
   const dasharrayManana = `${distribucion.pctManana}, 100`;
@@ -208,24 +217,26 @@ export default function ReportesAuxiliar() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-          <input
-            type="date"
-            value={fechaInicio}
-            onChange={(e) => setFechaInicio(e.target.value)}
-            className="bg-surface border border-outline-variant text-on-surface font-body-md text-body-md rounded-lg px-3 py-2"
-          />
-          <input
-            type="date"
-            value={fechaFin}
-            onChange={(e) => setFechaFin(e.target.value)}
-            className="bg-surface border border-outline-variant text-on-surface font-body-md text-body-md rounded-lg px-3 py-2"
-          />
+          <div className="flex gap-3 w-full sm:w-auto">
+            <input
+              type="date"
+              value={fechaInicio}
+              onChange={(e) => setFechaInicio(e.target.value)}
+              className="flex-1 sm:flex-none bg-surface border border-outline-variant text-on-surface font-body-md text-body-md rounded-lg px-3 py-2 min-w-0"
+            />
+            <input
+              type="date"
+              value={fechaFin}
+              onChange={(e) => setFechaFin(e.target.value)}
+              className="flex-1 sm:flex-none bg-surface border border-outline-variant text-on-surface font-body-md text-body-md rounded-lg px-3 py-2 min-w-0"
+            />
+          </div>
           {esAdmin && (
-            <div className="relative">
+            <div className="relative w-full sm:w-auto">
               <select
                 value={auxiliarSel}
                 onChange={(e) => setAuxiliarSel(e.target.value)}
-                className="appearance-none bg-surface border border-outline-variant text-on-surface font-body-md text-body-md rounded-lg pl-4 pr-10 py-2 focus:outline-none focus:ring-2 focus:ring-secondary focus:border-transparent"
+                className="w-full appearance-none bg-surface border border-outline-variant text-on-surface font-body-md text-body-md rounded-lg pl-4 pr-10 py-2 focus:outline-none focus:ring-2 focus:ring-secondary focus:border-transparent"
               >
                 <option value="">Todos los auxiliares</option>
                 {auxiliares.map((a) => (
@@ -243,7 +254,7 @@ export default function ReportesAuxiliar() {
             </div>
           )}
           {esAdmin && !auxiliarSel && (
-            <div className="flex bg-surface-container-low rounded-lg p-1 border border-outline-variant">
+            <div className="flex w-full sm:w-auto overflow-x-auto bg-surface-container-low rounded-lg p-1 border border-outline-variant">
               {[
                 { key: 'CONSOLIDADO', label: 'Consolidado' },
                 { key: 'MANANA', label: 'Mañana (A-E)' },
@@ -252,7 +263,7 @@ export default function ReportesAuxiliar() {
                 <button
                   key={op.key}
                   onClick={() => setVista(op.key)}
-                  className={`px-4 py-2 rounded-md font-label-md text-label-md transition-colors ${
+                  className={`flex-1 sm:flex-none whitespace-nowrap px-4 py-2 rounded-md font-label-md text-label-md transition-colors ${
                     vista === op.key
                       ? 'bg-white shadow-sm text-primary border border-outline-variant/30'
                       : 'text-on-surface-variant hover:bg-surface-variant'
@@ -265,7 +276,7 @@ export default function ReportesAuxiliar() {
           )}
           <button
             onClick={consultar}
-            className="bg-primary text-on-primary rounded-lg px-4 py-2 font-label-md text-label-md hover:bg-primary-container hover:text-on-primary-container transition-colors"
+            className="w-full sm:w-auto bg-primary text-on-primary rounded-lg px-4 py-2 font-label-md text-label-md hover:bg-primary-container hover:text-on-primary-container transition-colors"
           >
             Consultar
           </button>
@@ -498,7 +509,7 @@ export default function ReportesAuxiliar() {
         </div>
       </div>
 
-      {cargando && <p className="text-on-surface-variant mt-6">Cargando reporte...</p>}
+      {cargando && <Cargador texto="Cargando reporte…" className="mt-8" />}
     </div>
   );
 }

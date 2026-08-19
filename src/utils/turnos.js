@@ -31,6 +31,33 @@ export function seccionATurno(seccion) {
   return null;
 }
 
+// Extrae el número de grado para comparar formatos distintos: "1°",
+// "1ro secundaria", "1RO" -> "1". Si no hay número, cae al texto en
+// mayúsculas. Sirve para emparejar el grado del auxiliar (guardado como
+// "1°") con el del alumno (importado como "1ro secundaria").
+export function gradoNumero(grado) {
+  const m = String(grado || '').match(/\d+/);
+  return m ? m[0] : String(grado || '').trim().toUpperCase();
+}
+
+// Clave normalizada "numeroGrado|SECCION" para comparar jurisdicciones sin
+// importar cómo esté escrito el grado.
+export function claveGradoSeccion(grado, seccion) {
+  return `${gradoNumero(grado)}|${String(seccion || '').trim().toUpperCase()}`;
+}
+
+// Acorta el grado para mostrarlo en el carnet: quita palabras como
+// "secundaria"/"primaria"/"grado"/"de". "3ro secundaria" -> "3ro".
+export function gradoCorto(grado) {
+  return String(grado || '')
+    .replace(/\bde\b/gi, ' ')
+    .replace(/\bsecundaria\b/gi, ' ')
+    .replace(/\bprimaria\b/gi, ' ')
+    .replace(/\bgrado\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // Construye un Date de "hoy" con el hh:mm dado, en hora local.
 function horaHoyComoDate(hhmm, referencia = new Date()) {
   const [h, m] = hhmm.split(':').map(Number);
@@ -49,13 +76,14 @@ export function evaluarEstado(turno, horaMarcacion = new Date()) {
   return horaMarcacion <= limite ? 'ASISTIO' : 'TARDE';
 }
 
-// Determina cuál turno está "activo" según la hora actual, usando el punto
-// medio entre la salida de la mañana y el inicio de la tarde como corte.
-export function turnoActivoPorHora(referencia = new Date()) {
-  const minutos = referencia.getHours() * 60 + referencia.getMinutes();
-  const corteManana = 11 * 60 + 45; // 11:45, punto medio aprox. entre 10:45 salida-ish y 12:30
-  if (minutos < corteManana) return TURNOS.MANANA;
-  return TURNOS.TARDE;
+// Fecha "YYYY-MM-DD" en hora LOCAL (no UTC). Usar esto en vez de
+// `new Date().toISOString().slice(0,10)`, que devuelve la fecha en UTC y
+// en Perú (UTC-5) puede adelantar un día en marcaciones nocturnas.
+export function fechaLocalISO(fecha = new Date()) {
+  const y = fecha.getFullYear();
+  const m = String(fecha.getMonth() + 1).padStart(2, '0');
+  const d = String(fecha.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 export function formatearHora(date = new Date()) {

@@ -7,13 +7,14 @@ import EscanerQR from './components/EscanerQR';
 import ReportesAuxiliar from './components/ReportesAuxiliar';
 import GestionUsuarios from './components/GestionUsuarios';
 import Shell from './components/Shell';
+import Cargador from './components/Cargador';
 
 // Se monta UNA sola vez al entrar al área protegida; <Outlet /> es lo único
 // que cambia entre rutas, así el Shell (sidebar/nav) no se desmonta ni
 // "parpadea" al navegar entre pantallas.
 function ShellLayout() {
   const { session, perfil, cargando } = useAuth();
-  if (cargando) return <div className="p-10 text-center text-on-surface-variant font-body-md">Cargando...</div>;
+  if (cargando) return <Cargador pantallaCompleta texto="Cargando tu panel…" />;
   if (!session) return <Navigate to="/login" replace />;
   if (!perfil) {
     return (
@@ -38,7 +39,7 @@ function RutaAdmin({ children }) {
 export default function App() {
   const { session, cargando } = useAuth();
 
-  if (cargando) return <div className="p-10 text-center text-on-surface-variant font-body-md">Cargando...</div>;
+  if (cargando) return <Cargador pantallaCompleta texto="Iniciando sistema…" />;
 
   return (
     <Routes>

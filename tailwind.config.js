@@ -5,6 +5,11 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Colores de marca extraídos del escudo del colegio San Juan.
+        'brand-blue': '#264796',
+        'brand-blue-dark': '#1b3670',
+        'brand-red': '#e31e24',
+        'brand-yellow': '#fdcb01',
         'tertiary-fixed-dim': '#c3c0ff',
         'on-tertiary-fixed': '#0f0069',
         'on-error-container': '#93000a',
@@ -37,7 +42,7 @@ export default {
         secondary: '#006398',
         'secondary-container': '#5bb8fe',
         'outline-variant': '#c5c5d3',
-        primary: '#00236f',
+        primary: '#264796', // azul del logo San Juan
         'surface-variant': '#d3e4fe',
         surface: '#f8f9ff',
         background: '#f8f9ff',

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../lib/AuthContext';
-import { evaluarEstado, formatearHora, formatearHoraDesdeTexto, HORARIOS, TURNOS } from '../utils/turnos';
+import { evaluarEstado, fechaLocalISO, formatearHora, formatearHoraDesdeTexto, HORARIOS, TURNOS } from '../utils/turnos';
 import Icon from './Icon';
 
 const LECTOR_ID = 'qr-reader-region';
@@ -74,7 +74,7 @@ export default function EscanerQR() {
   }, []);
 
   async function cargarRegistrosHoy() {
-    const hoy = new Date().toISOString().slice(0, 10);
+    const hoy = fechaLocalISO();
     const { data } = await supabase
       .from('asistencias')
       .select('id, hora_ingreso, estado, estudiantes(nombres, apellidos, grado, seccion)')
@@ -168,7 +168,7 @@ export default function EscanerQR() {
     }
 
     const estado = evaluarEstado(turno, ahora);
-    const fecha = ahora.toISOString().slice(0, 10);
+    const fecha = fechaLocalISO(ahora);
     const horaIngreso = ahora.toTimeString().slice(0, 8);
 
     const { error: errInsert } = await supabase.from('asistencias').insert({
@@ -220,26 +220,26 @@ export default function EscanerQR() {
   const horario = HORARIOS[turno];
 
   return (
-    <div className="flex-1 md:ml-0 bg-background flex flex-col h-[calc(100vh-64px)] md:h-screen relative">
+    <div className="flex-1 md:ml-0 bg-background flex flex-col h-[calc(100dvh-64px-72px)] md:h-screen relative">
       {/* Control Header */}
       <div className="bg-surface shadow-sm px-margin-mobile md:px-margin-desktop py-4 flex flex-col md:flex-row justify-between items-center gap-4 z-10 no-print">
-        <div className="flex items-center gap-4 w-full md:w-auto">
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
           <select
             value={turno}
             onChange={(e) => setTurno(e.target.value)}
             disabled={escaneando || (!esAdmin && !!perfil?.turno)}
-            className="block w-full md:w-auto pl-3 pr-10 py-2 text-title-md font-title-md border-outline-variant sm:text-sm rounded-md bg-surface-container-lowest text-on-surface border disabled:opacity-60"
+            className="block flex-1 min-w-[150px] md:flex-none md:w-auto pl-3 pr-10 py-2 text-title-md font-title-md border-outline-variant sm:text-sm rounded-md bg-surface-container-lowest text-on-surface border disabled:opacity-60"
           >
             <option value={TURNOS.MANANA}>Turno Mañana</option>
             <option value={TURNOS.TARDE}>Turno Tarde</option>
           </select>
-          <div className="bg-amber-100 text-amber-800 px-3 py-1 rounded-full font-label-md text-label-md flex items-center gap-1 border border-amber-200 whitespace-nowrap">
+          <div className="bg-amber-100 text-amber-800 px-3 py-1 rounded-full font-label-md text-label-md flex items-center gap-1 border border-amber-200 whitespace-nowrap shrink-0">
             <Icon name="timer" className="text-[16px]" />
             Tolerancia: {horario.tolerancia}
           </div>
         </div>
         <div className="text-center w-full md:w-auto flex flex-col items-center">
-          <div className="font-display-lg text-display-lg text-primary tracking-tight tabular-nums">
+          <div className="font-display-lg text-3xl md:text-display-lg text-primary tracking-tight tabular-nums">
             {reloj.toLocaleTimeString('es-PE', { hour12: true })}
           </div>
           <div className="text-on-surface-variant font-label-md text-label-md uppercase tracking-wider">
@@ -253,7 +253,10 @@ export default function EscanerQR() {
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
         {/* Scanner Viewport */}
         <div className="flex-1 bg-black relative flex items-center justify-center overflow-hidden min-h-[320px]">
-          <div id={LECTOR_ID} className="absolute inset-0 w-full h-full [&>video]:w-full [&>video]:h-full [&>video]:object-cover" />
+          {/* El tamaño/centrado del <video> y el ocultado de los elementos
+              extra de html5-qrcode se controlan en index.css (#qr-reader-region),
+              para ganarle a los estilos inline de la librería. */}
+          <div id={LECTOR_ID} />
 
           {!escaneando && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-inverse-surface/60">

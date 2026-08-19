@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../lib/AuthContext';
+import { useUI } from '../lib/UIContext';
 import { HORARIOS, TURNOS } from '../utils/turnos';
 import Icon from './Icon';
 
@@ -37,14 +38,15 @@ function leerBorrador() {
 }
 
 export default function GestionUsuarios() {
-  const { perfil: perfilActual } = useAuth();
+  const { perfil: perfilActual, recargarPerfil } = useAuth();
+  const { toast, confirmar } = useUI();
   const [usuarios, setUsuarios] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [modalAbierto, setModalAbierto] = useState(() => leerBorrador()?.modalAbierto ?? false);
   const [form, setForm] = useState(() => leerBorrador()?.form ?? formularioVacio());
   const [guardando, setGuardando] = useState(false);
-  const [nuevoGrado, setNuevoGrado] = useState('');
+  const [nuevoGrado, setNuevoGrado] = useState('1°');
   const [nuevaSeccion, setNuevaSeccion] = useState(seccionesValidas(TURNOS.MANANA)[0]);
 
   useEffect(() => {
@@ -105,7 +107,6 @@ export default function GestionUsuarios() {
     const yaExiste = form.secciones.some((s) => s.grado === grado && s.seccion === nuevaSeccion);
     if (yaExiste) return;
     setForm((f) => ({ ...f, secciones: [...f.secciones, { grado, seccion: nuevaSeccion }] }));
-    setNuevoGrado('');
   }
 
   function quitarSeccion(idx) {
@@ -171,6 +172,10 @@ export default function GestionUsuarios() {
 
       setModalAbierto(false);
       await cargarUsuarios();
+      // Si editaste tu propia cuenta, refresca el perfil en sesión para que
+      // el nombre/rol se actualice al instante en la barra lateral.
+      if (form.id === perfilActual?.id) await recargarPerfil();
+      toast(form.id ? 'Cambios guardados' : 'Usuario creado', 'exito');
     } catch (err) {
       setErrorMsg(err.message || 'Ocurrió un error al guardar.');
     } finally {
@@ -180,16 +185,26 @@ export default function GestionUsuarios() {
 
   async function eliminar(usuario) {
     if (usuario.id === perfilActual?.id) return;
-    if (!window.confirm(`¿Eliminar la cuenta de ${usuario.nombres}? Esta acción no se puede deshacer.`)) return;
+    const ok = await confirmar({
+      titulo: 'Eliminar usuario',
+      mensaje: `¿Eliminar la cuenta de ${usuario.nombres}? Esta acción no se puede deshacer.`,
+      confirmLabel: 'Eliminar',
+      tono: 'peligro',
+      icon: 'delete',
+    });
+    if (!ok) return;
 
     const { data, error } = await supabase.functions.invoke('admin-usuarios', {
       body: { accion: 'eliminar', id: usuario.id },
     });
     if (error || data?.error) {
-      setErrorMsg(error?.message || data?.error || 'No se pudo eliminar el usuario.');
+      const msg = error?.message || data?.error || 'No se pudo eliminar el usuario.';
+      setErrorMsg(msg);
+      toast(msg, 'error');
       return;
     }
     await cargarUsuarios();
+    toast(`Usuario ${usuario.nombres} eliminado`, 'exito');
   }
 
   const secciones = useMemo(() => seccionesValidas(form.turno), [form.turno]);
@@ -400,12 +415,17 @@ export default function GestionUsuarios() {
                       Secciones a cargo
                     </label>
                     <div className="flex gap-2 mb-2">
-                      <input
-                        placeholder="Grado (ej: 3°)"
+                      <select
                         value={nuevoGrado}
                         onChange={(e) => setNuevoGrado(e.target.value)}
                         className="flex-1 px-3 py-2 bg-surface-container-lowest border border-outline-variant rounded-lg text-on-surface focus:outline-none focus:border-secondary"
-                      />
+                      >
+                        {['1°', '2°', '3°', '4°', '5°'].map((g) => (
+                          <option key={g} value={g}>
+                            {g} grado
+                          </option>
+                        ))}
+                      </select>
                       <select
                         value={nuevaSeccion}
                         onChange={(e) => setNuevaSeccion(e.target.value)}
@@ -464,7 +484,7 @@ export default function GestionUsuarios() {
               <button
                 type="submit"
                 disabled={guardando}
-                className="px-6 py-2 bg-[#00164e] text-white rounded-lg hover:bg-[#00236f] transition-colors disabled:opacity-50"
+                className="px-6 py-2 bg-brand-blue text-white rounded-lg hover:bg-brand-blue-dark transition-colors disabled:opacity-50"
               >
                 {guardando ? 'Guardando...' : form.id ? 'Guardar cambios' : 'Crear usuario'}
               </button>
