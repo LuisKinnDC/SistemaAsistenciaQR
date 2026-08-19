@@ -32,9 +32,9 @@ auxiliares y reportes de tardanzas.
 
 ## Puesta en marcha
 
-1. Instala dependencias:
+1. Instala dependencias (este proyecto usa **pnpm**):
    ```bash
-   npm install
+   pnpm install
    ```
 2. Copia `.env.example` a `.env` y completa tus credenciales de Supabase:
    ```
@@ -47,13 +47,13 @@ auxiliares y reportes de tardanzas.
    - `alta_admin.sql` — da de alta tu primer usuario administrador.
 4. Despliega la Edge Function de gestión de usuarios:
    ```bash
-   npx supabase login
-   npx supabase link --project-ref <TU_PROJECT_REF>
-   npx supabase functions deploy admin-usuarios
+   pnpm dlx supabase login
+   pnpm dlx supabase link --project-ref <TU_PROJECT_REF>
+   pnpm dlx supabase functions deploy admin-usuarios
    ```
 5. Arranca el entorno de desarrollo:
    ```bash
-   npm run dev
+   pnpm dev
    ```
 
 ## Estructura
