@@ -29,13 +29,24 @@ export const HORARIOS = {
 // margen desde poco antes de las 6.
 export const HORA_MINIMA_ESCANEO = '05:59';
 
-// ¿La hora dada cae dentro del horario permitido para escanear? Bloquea la
-// madrugada (00:00–05:58) para evitar registros inválidos, p. ej. un escaneo a
-// las 12am que se tomaba como asistencia.
-export function puedeEscanear(fecha = new Date()) {
-  const [h, m] = HORA_MINIMA_ESCANEO.split(':').map(Number);
+// Convierte "HH:MM" a minutos desde medianoche.
+function hhmmAMinutos(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+// Evalúa si la hora dada cae dentro de la ventana permitida para escanear el
+// turno indicado. Devuelve:
+//   'ANTES'   -> madrugada, antes de HORA_MINIMA_ESCANEO (bloqueado).
+//   'DESPUES' -> pasada la hora de salida del turno (bloqueado).
+//   'OK'      -> dentro del horario, se puede marcar.
+// Así un escaneo a las 12am o después de la salida no se registra por error.
+export function ventanaEscaneo(turno, fecha = new Date()) {
   const minutosAhora = fecha.getHours() * 60 + fecha.getMinutes();
-  return minutosAhora >= h * 60 + m;
+  if (minutosAhora < hhmmAMinutos(HORA_MINIMA_ESCANEO)) return 'ANTES';
+  const salida = HORARIOS[turno]?.salida;
+  if (salida && minutosAhora > hhmmAMinutos(salida)) return 'DESPUES';
+  return 'OK';
 }
 
 // Mapea una sección (A-H) a su turno correspondiente.

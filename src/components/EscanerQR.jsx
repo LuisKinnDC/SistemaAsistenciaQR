@@ -9,7 +9,7 @@ import {
   formatearHoraDesdeTexto,
   HORA_MINIMA_ESCANEO,
   HORARIOS,
-  puedeEscanear,
+  ventanaEscaneo,
   TURNOS,
 } from '../utils/turnos';
 import Icon from './Icon';
@@ -152,13 +152,15 @@ export default function EscanerQR() {
   async function registrarMarcacion(dni) {
     const ahora = new Date();
 
-    // Compuerta horaria: en la madrugada (antes de las 5:59am) el colegio está
-    // cerrado; un escaneo a esa hora no debe registrarse como asistencia.
-    if (!puedeEscanear(ahora)) {
-      mostrarResultado({
-        tipo: 'FUERA_DE_HORARIO',
-        detalle: `Solo se puede marcar a partir de las ${formatearHoraDesdeTexto(HORA_MINIMA_ESCANEO)}.`,
-      });
+    // Compuerta horaria: fuera del horario de clases (madrugada o pasada la
+    // salida del turno) el escaneo no debe registrarse como asistencia.
+    const ventana = ventanaEscaneo(turno, ahora);
+    if (ventana !== 'OK') {
+      const detalle =
+        ventana === 'ANTES'
+          ? `Solo se puede marcar a partir de las ${formatearHoraDesdeTexto(HORA_MINIMA_ESCANEO)}.`
+          : `El horario de ${HORARIOS[turno].label} terminó a las ${formatearHoraDesdeTexto(HORARIOS[turno].salida)}.`;
+      mostrarResultado({ tipo: 'FUERA_DE_HORARIO', detalle });
       return;
     }
 
