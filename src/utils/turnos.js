@@ -23,11 +23,13 @@ export const HORARIOS = {
   },
 };
 
-// Hora mínima (HH:MM, local) a partir de la cual se permite marcar asistencia.
-// Antes de esta hora el colegio está cerrado (madrugada), así que un QR leído a
-// esas horas NO debe contar como asistencia. Las clases arrancan 07:00, damos
-// margen desde poco antes de las 6.
+// Ventana horaria global (HH:MM, local) dentro de la cual se permite marcar
+// asistencia, independiente del turno. Fuera de esta ventana el colegio está
+// cerrado y un QR leído NO debe contar como asistencia (p. ej. un escaneo a las
+// 12am). Las clases van de 07:00 a 18:15; damos margen: desde poco antes de las
+// 6 hasta poco antes de las 7 de la noche.
 export const HORA_MINIMA_ESCANEO = '05:59';
+export const HORA_MAXIMA_ESCANEO = '18:59';
 
 // Convierte "HH:MM" a minutos desde medianoche.
 function hhmmAMinutos(hhmm) {
@@ -35,17 +37,15 @@ function hhmmAMinutos(hhmm) {
   return h * 60 + m;
 }
 
-// Evalúa si la hora dada cae dentro de la ventana permitida para escanear el
-// turno indicado. Devuelve:
-//   'ANTES'   -> madrugada, antes de HORA_MINIMA_ESCANEO (bloqueado).
-//   'DESPUES' -> pasada la hora de salida del turno (bloqueado).
+// Evalúa si la hora dada cae dentro de la ventana global permitida para
+// escanear. Devuelve:
+//   'ANTES'   -> antes de HORA_MINIMA_ESCANEO (madrugada, bloqueado).
+//   'DESPUES' -> después de HORA_MAXIMA_ESCANEO (noche, bloqueado).
 //   'OK'      -> dentro del horario, se puede marcar.
-// Así un escaneo a las 12am o después de la salida no se registra por error.
-export function ventanaEscaneo(turno, fecha = new Date()) {
+export function ventanaEscaneo(fecha = new Date()) {
   const minutosAhora = fecha.getHours() * 60 + fecha.getMinutes();
   if (minutosAhora < hhmmAMinutos(HORA_MINIMA_ESCANEO)) return 'ANTES';
-  const salida = HORARIOS[turno]?.salida;
-  if (salida && minutosAhora > hhmmAMinutos(salida)) return 'DESPUES';
+  if (minutosAhora > hhmmAMinutos(HORA_MAXIMA_ESCANEO)) return 'DESPUES';
   return 'OK';
 }
 
