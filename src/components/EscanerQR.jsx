@@ -156,18 +156,6 @@ export default function EscanerQR() {
   async function registrarMarcacion(dni) {
     const ahora = new Date();
 
-    // Compuerta horaria: fuera del horario de clases (madrugada o pasada la
-    // salida del turno) el escaneo no debe registrarse como asistencia.
-    const ventana = ventanaEscaneo(turno, ahora);
-    if (ventana !== 'OK') {
-      const detalle =
-        ventana === 'ANTES'
-          ? `Solo se puede marcar a partir de las ${formatearHoraDesdeTexto(HORA_MINIMA_ESCANEO)}.`
-          : `El horario de ${HORARIOS[turno].label} terminó a las ${formatearHoraDesdeTexto(HORARIOS[turno].salida)}.`;
-      mostrarResultado({ tipo: 'FUERA_DE_HORARIO', detalle });
-      return;
-    }
-
     const { data: estudiante, error: errBusqueda } = await supabase
       .from('estudiantes')
       .select('*')
@@ -190,6 +178,19 @@ export default function EscanerQR() {
         detalle: 'Por favor, esperar a su horario.',
       });
       agregarAlLog({ tipo: 'TURNO_INCORRECTO', nombre: nombreCompleto, gradoSeccion, hora: ahora.toTimeString().slice(0, 8) });
+      return;
+    }
+
+    // Compuerta horaria según el turno del alumno (ya coincide con el turno del
+    // escáner): fuera del horario de clases (madrugada o pasada la salida) el
+    // escaneo no debe registrarse como asistencia.
+    const ventana = ventanaEscaneo(estudiante.turno, ahora);
+    if (ventana !== 'OK') {
+      const detalle =
+        ventana === 'ANTES'
+          ? `Solo se puede marcar a partir de las ${formatearHoraDesdeTexto(HORA_MINIMA_ESCANEO)}.`
+          : `El horario de ${HORARIOS[estudiante.turno].label} terminó a las ${formatearHoraDesdeTexto(HORARIOS[estudiante.turno].salida)}.`;
+      mostrarResultado({ tipo: 'FUERA_DE_HORARIO', nombreCompleto, detalle });
       return;
     }
 
