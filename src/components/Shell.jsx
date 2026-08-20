@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { useUI } from '../lib/UIContext';
 import Icon from './Icon';
+import ProfileMenu from './ProfileMenu';
 
 const ITEMS = [
   { to: '/importar', label: 'Importar Excel', labelCorto: 'Importar', icon: 'upload_file', soloAdmin: true },
@@ -45,9 +46,12 @@ export default function Shell({ children }) {
   }
 
   return (
-    <div className="bg-background text-on-background font-body-md min-h-screen antialiased flex flex-col md:flex-row">
-      {/* SIDE NAV (Desktop) */}
-      <nav className="bg-surface-container-low text-primary font-label-md text-label-md h-screen w-[280px] hidden md:flex flex-col border-r border-outline-variant fixed left-0 top-0 z-40">
+    <div className="bg-background text-on-background font-body-md min-h-screen antialiased flex flex-col lg:flex-row">
+      {/* SIDE NAV (Escritorio ≥1024px). En tablets de ~10.1" (p. ej. 800px de
+          ancho) el sidebar fijo de 280px dejaba el contenido apretado y
+          desordenado, así que por debajo de lg usamos el layout móvil
+          (barra superior + navegación inferior). */}
+      <nav className="bg-surface-container-low text-primary font-label-md text-label-md h-screen w-[280px] hidden lg:flex flex-col border-r border-outline-variant fixed left-0 top-0 z-40">
         <div className="p-6 border-b border-outline-variant/50">
           <div className="flex items-center gap-3 mb-4">
             <Logo />
@@ -104,28 +108,22 @@ export default function Shell({ children }) {
         </div>
       </nav>
 
-      {/* TOP NAV (Mobile) */}
-      <header className="sticky top-0 z-50 flex justify-between items-center w-full px-margin-mobile md:hidden h-16 bg-surface border-b border-outline-variant shadow-sm">
+      {/* TOP NAV (Móvil / Tablet) */}
+      <header className="sticky top-0 z-50 flex justify-between items-center w-full px-margin-mobile lg:hidden h-16 bg-surface border-b border-outline-variant shadow-sm">
         <div className="flex items-center gap-2 min-w-0">
           <Logo small />
           <span className="font-headline-lg-mobile text-headline-lg-mobile font-bold text-primary truncate">
             Asistencia SJ
           </span>
         </div>
-        <button
-          onClick={manejarCerrarSesion}
-          className="text-primary active:scale-95 duration-150 p-2 rounded-full hover:bg-surface-container-low transition-colors"
-          title="Cerrar sesión"
-        >
-          <Icon name="logout" />
-        </button>
+        <ProfileMenu />
       </header>
 
       {/* MAIN CONTENT */}
-      <main className="flex-1 md:ml-[280px] w-full pb-24 md:pb-0 min-h-screen">{children}</main>
+      <main className="flex-1 lg:ml-[280px] w-full pb-24 lg:pb-0 min-h-screen">{children}</main>
 
-      {/* BOTTOM NAV (Mobile) */}
-      <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-2 md:hidden bg-surface border-t border-outline-variant shadow-lg">
+      {/* BOTTOM NAV (Móvil / Tablet) */}
+      <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-2 lg:hidden bg-surface border-t border-outline-variant shadow-lg">
         {items.map((item) => (
           <NavLink
             key={item.to}
