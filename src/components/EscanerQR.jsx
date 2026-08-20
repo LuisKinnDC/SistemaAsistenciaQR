@@ -2,7 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../lib/AuthContext';
-import { evaluarEstado, fechaLocalISO, formatearHora, formatearHoraDesdeTexto, HORARIOS, TURNOS } from '../utils/turnos';
+import {
+  evaluarEstado,
+  fechaLocalISO,
+  formatearHora,
+  formatearHoraDesdeTexto,
+  HORA_MINIMA_ESCANEO,
+  HORARIOS,
+  puedeEscanear,
+  TURNOS,
+} from '../utils/turnos';
 import Icon from './Icon';
 
 const LECTOR_ID = 'qr-reader-region';
@@ -12,6 +21,7 @@ const OVERLAY_ESTILOS = {
   ASISTIO: { bg: 'bg-blue-600/90', icon: 'check_circle', titulo: '¡ASISTIÓ!' },
   TARDE: { bg: 'bg-red-600/90', icon: 'schedule', titulo: '¡TARDE!' },
   TURNO_INCORRECTO: { bg: 'bg-amber-600/90', icon: 'warning', titulo: '¡TURNO INCORRECTO!' },
+  FUERA_DE_HORARIO: { bg: 'bg-slate-800/90', icon: 'bedtime', titulo: 'FUERA DE HORARIO' },
   DUPLICADO: { bg: 'bg-slate-700/90', icon: 'block', titulo: 'YA REGISTRADO HOY' },
   NO_ENCONTRADO: { bg: 'bg-slate-800/90', icon: 'person_off', titulo: 'NO ENCONTRADO' },
   ERROR: { bg: 'bg-slate-800/90', icon: 'error', titulo: 'ERROR AL REGISTRAR' },
@@ -141,6 +151,16 @@ export default function EscanerQR() {
 
   async function registrarMarcacion(dni) {
     const ahora = new Date();
+
+    // Compuerta horaria: en la madrugada (antes de las 5:59am) el colegio está
+    // cerrado; un escaneo a esa hora no debe registrarse como asistencia.
+    if (!puedeEscanear(ahora)) {
+      mostrarResultado({
+        tipo: 'FUERA_DE_HORARIO',
+        detalle: `Solo se puede marcar a partir de las ${formatearHoraDesdeTexto(HORA_MINIMA_ESCANEO)}.`,
+      });
+      return;
+    }
 
     const { data: estudiante, error: errBusqueda } = await supabase
       .from('estudiantes')

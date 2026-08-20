@@ -23,6 +23,21 @@ export const HORARIOS = {
   },
 };
 
+// Hora mínima (HH:MM, local) a partir de la cual se permite marcar asistencia.
+// Antes de esta hora el colegio está cerrado (madrugada), así que un QR leído a
+// esas horas NO debe contar como asistencia. Las clases arrancan 07:00, damos
+// margen desde poco antes de las 6.
+export const HORA_MINIMA_ESCANEO = '05:59';
+
+// ¿La hora dada cae dentro del horario permitido para escanear? Bloquea la
+// madrugada (00:00–05:58) para evitar registros inválidos, p. ej. un escaneo a
+// las 12am que se tomaba como asistencia.
+export function puedeEscanear(fecha = new Date()) {
+  const [h, m] = HORA_MINIMA_ESCANEO.split(':').map(Number);
+  const minutosAhora = fecha.getHours() * 60 + fecha.getMinutes();
+  return minutosAhora >= h * 60 + m;
+}
+
 // Mapea una sección (A-H) a su turno correspondiente.
 export function seccionATurno(seccion) {
   const s = String(seccion || '').trim().toUpperCase();
