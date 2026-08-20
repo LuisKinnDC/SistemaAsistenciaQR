@@ -23,7 +23,10 @@ export default function ReportesAuxiliar() {
   const { perfil, esAdmin } = useAuth();
   const { toast } = useUI();
 
-  const [fechaInicio, setFechaInicio] = useState(haceNDiasISO(7));
+  // Ventana por defecto = últimos 7 días de calendario, que siempre contienen
+  // exactamente 5 días hábiles (lunes a viernes = una semana de clases). Con
+  // haceNDiasISO(7) el rango abarcaba 8 días y caían 6 hábiles.
+  const [fechaInicio, setFechaInicio] = useState(haceNDiasISO(6));
   const [fechaFin, setFechaFin] = useState(hoyISO());
   const [vista, setVista] = useState('CONSOLIDADO'); // CONSOLIDADO | MANANA | TARDE
   const [auxiliarSel, setAuxiliarSel] = useState(''); // '' = todos los auxiliares

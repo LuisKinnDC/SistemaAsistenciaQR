@@ -46,6 +46,15 @@ export function claveGradoSeccion(grado, seccion) {
   return `${gradoNumero(grado)}|${String(seccion || '').trim().toUpperCase()}`;
 }
 
+// Normaliza el grado a un formato canónico "N°" a partir de su número, para
+// que se guarde siempre igual (el auxiliar tiene sus secciones como "3°",
+// "4°"). "3ro secundaria" -> "3°", "3° secundaria" -> "3°". Si no hay número
+// (caso raro), deja el texto recortado tal cual.
+export function normalizarGrado(grado) {
+  const m = String(grado || '').match(/\d+/);
+  return m ? `${m[0]}°` : String(grado || '').trim();
+}
+
 // Acorta el grado para mostrarlo en el carnet: quita palabras como
 // "secundaria"/"primaria"/"grado"/"de". "3ro secundaria" -> "3ro".
 export function gradoCorto(grado) {

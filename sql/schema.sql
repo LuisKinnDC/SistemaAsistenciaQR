@@ -143,13 +143,19 @@ language sql security definer stable set search_path = public as $$
 $$;
 
 -- ¿El usuario autenticado tiene asignada la combinación grado+sección dada?
+-- El grado se compara por su NÚMERO (1-5): la jurisdicción del auxiliar se
+-- guarda como '3°'/'4°', pero estudiantes.grado se importa del Excel como
+-- '3ro secundaria', '3° secundaria', etc. Comparar el texto exacto nunca
+-- coincidiría. (Ver también sql/fix_tiene_acceso_grado.sql para bases ya
+-- instaladas con la versión antigua.)
 create or replace function public.tiene_acceso(p_grado text, p_seccion text)
 returns boolean
 language sql security definer stable set search_path = public as $$
   select exists (
     select 1 from auxiliar_secciones
     where auxiliar_id = auth.uid()
-      and grado = p_grado
+      and coalesce(substring(grado   from '\d+'), upper(trim(grado)))
+        = coalesce(substring(p_grado from '\d+'), upper(trim(p_grado)))
       and seccion = upper(p_seccion)
   );
 $$;

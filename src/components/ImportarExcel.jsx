@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabaseClient';
 import { useUI } from '../lib/UIContext';
-import { seccionATurno } from '../utils/turnos';
+import { seccionATurno, normalizarGrado } from '../utils/turnos';
 import Icon from './Icon';
 import EditarAlumno from './EditarAlumno';
 
@@ -143,7 +143,7 @@ export default function ImportarExcel() {
             const dni = valor(fila, 'DNI').replace(/\s+/g, '');
             const nombres = valor(fila, 'NOMBRES');
             const apellidos = valor(fila, 'APELLIDOS');
-            const grado = valor(fila, 'GRADO');
+            const grado = normalizarGrado(valor(fila, 'GRADO'));
             const seccion = valor(fila, 'SECCION').toUpperCase();
 
             // Descarta filas totalmente vacías (p. ej. separadores al final).

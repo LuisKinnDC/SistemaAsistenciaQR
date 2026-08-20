@@ -44,6 +44,9 @@ auxiliares y reportes de tardanzas.
 3. En el SQL Editor de Supabase, ejecuta en orden los scripts de `sql/`:
    - `schema.sql` (instalación nueva) — crea tablas, RLS y funciones.
    - `restringir_reportes_a_admin.sql` — limita los reportes a administradores.
+   - `fix_tiene_acceso_grado.sql` — solo si ya tenías una base con la versión
+     antigua de `tiene_acceso` (compara el grado por número). En una
+     instalación nueva ya viene corregido en `schema.sql`.
    - `alta_admin.sql` — da de alta tu primer usuario administrador.
 4. Despliega la Edge Function de gestión de usuarios:
    ```bash
