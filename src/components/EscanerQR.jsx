@@ -13,6 +13,7 @@ import {
   TURNOS,
 } from '../utils/turnos';
 import Icon from './Icon';
+import { desbloquearAudio, reproducirSonido } from '../utils/sonidos';
 
 const LECTOR_ID = 'qr-reader-region';
 const DURACION_OVERLAY_MS = 2500;
@@ -105,6 +106,9 @@ export default function EscanerQR() {
   }
 
   async function iniciarCamara() {
+    // Iniciar la cámara es un gesto del usuario: aprovechamos para habilitar el
+    // audio, si no el navegador bloquea el sonido de las marcaciones.
+    desbloquearAudio();
     setEscaneando(true);
     const scanner = new Html5Qrcode(LECTOR_ID);
     scannerRef.current = scanner;
@@ -224,6 +228,7 @@ export default function EscanerQR() {
 
   function mostrarResultado(res) {
     setResultado(res);
+    reproducirSonido(res.tipo);
     cierreTimeoutRef.current = setTimeout(() => cerrarOverlay(), DURACION_OVERLAY_MS);
   }
 
