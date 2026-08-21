@@ -6,3 +6,7 @@ dist
 # Supabase CLI
 supabase/.temp
 supabase/.branches
+
+# Mockups / prototipos de UI (no forman parte del build)
+UI/
+ui.html
