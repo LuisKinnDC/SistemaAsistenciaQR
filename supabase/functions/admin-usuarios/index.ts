@@ -11,21 +11,57 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
+// Longitud mínima de contraseña para cuentas creadas/actualizadas por el admin.
+const MIN_PASSWORD = 8;
 
-function respuesta(body, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
+// Orígenes permitidos para CORS. Se configuran con la variable de entorno
+// ORIGENES_PERMITIDOS (lista separada por comas, ej.
+// "https://asistencia-sanjuan.vercel.app,https://asistencia.sanjuan.edu.pe").
+// Además se aceptan siempre localhost (desarrollo) y los previews *.vercel.app.
+const ORIGENES_PERMITIDOS = (Deno.env.get('ORIGENES_PERMITIDOS') || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function esOrigenPermitido(origin) {
+  if (!origin) return false;
+  if (ORIGENES_PERMITIDOS.includes(origin)) return true;
+  try {
+    const host = new URL(origin).host;
+    if (/^localhost(:\d+)?$/.test(host)) return true;
+    if (/^127\.0\.0\.1(:\d+)?$/.test(host)) return true;
+    if (/\.vercel\.app$/.test(host)) return true;
+  } catch {
+    /* origin malformado */
+  }
+  return false;
+}
+
+function corsHeaders(origin) {
+  // Solo devolvemos Access-Control-Allow-Origin si el origen está permitido;
+  // así el navegador bloquea la lectura de la respuesta desde cualquier otro sitio.
+  const permitido = esOrigenPermitido(origin);
+  return {
+    'Access-Control-Allow-Origin': permitido ? origin : ORIGENES_PERMITIDOS[0] || 'null',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Vary': 'Origin',
+  };
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const origin = req.headers.get('Origin');
+  const cors = corsHeaders(origin);
+
+  function respuesta(body, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { ...cors, 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
+  if (req.method !== 'POST') return respuesta({ error: 'Método no permitido' }, 405);
 
   try {
     const authHeader = req.headers.get('Authorization');
@@ -61,6 +97,12 @@ Deno.serve(async (req) => {
 
       if (!email || !password || !nombres || !rol) {
         throw new Error('Faltan campos obligatorios: email, password, nombres, rol');
+      }
+      if (String(password).length < MIN_PASSWORD) {
+        throw new Error(`La contraseña debe tener al menos ${MIN_PASSWORD} caracteres`);
+      }
+      if (!['ADMIN', 'AUXILIAR'].includes(rol)) {
+        throw new Error('Rol inválido (debe ser ADMIN o AUXILIAR)');
       }
       if (rol === 'AUXILIAR' && !turno) {
         throw new Error('Un auxiliar necesita un turno asignado');
@@ -116,6 +158,9 @@ Deno.serve(async (req) => {
     if (body.accion === 'cambiar_password') {
       const { id, password } = body;
       if (!id || !password) throw new Error('Faltan id y password');
+      if (String(password).length < MIN_PASSWORD) {
+        throw new Error(`La contraseña debe tener al menos ${MIN_PASSWORD} caracteres`);
+      }
 
       const { error: updateError } = await adminClient.auth.admin.updateUserById(id, { password });
       if (updateError) throw updateError;
