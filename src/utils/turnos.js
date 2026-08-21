@@ -18,7 +18,7 @@ export const HORARIOS = {
     label: 'Turno Tarde',
     secciones: ['F', 'G', 'H'],
     ingresoInicio: '12:30',
-    tolerancia: '15:15',
+    tolerancia: '12:45',
     salida: '18:15',
   },
 };
